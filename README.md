@@ -6,6 +6,8 @@ build step and no server.
 
 **Live demo → https://photonalpha.github.io/itprojectmanagement/**
 
+![The Kanban board: an Add Task form beside the Backlog, In Progress, Blocked and Done columns](docs/screenshot.png)
+
 > This is an internal demo / training tool, not a product. The "UOB IT PMO"
 > heading is a plain text wordmark: the project uses no real UOB logos or
 > trademarks and does not imitate an official UOB system.

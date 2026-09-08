@@ -1,7 +1,7 @@
 ---
-description: Scan for secrets, push the code to GitHub, deploy a GitHub Page via Actions, and write the README and repo About
+description: Scan for secrets, push the code to GitHub, deploy a GitHub Page via Actions, screenshot the site, and write the README and repo About
 argument-hint: [repo URL or owner/name — omit to reuse the existing origin]
-allowed-tools: Bash, Read, Edit, Write, Glob, Grep, WebFetch
+allowed-tools: Bash, Read, Edit, Write, Glob, Grep, WebFetch, mcp__playwright__browser_navigate, mcp__playwright__browser_resize, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_close
 ---
 
 # Ship this project to GitHub
@@ -178,18 +178,53 @@ Then fix the 404s the site itself causes:
 Confirm both: `/` returns 200, and a nonexistent path returns 404 with the
 custom page.
 
-## Phase 4 — README
+## Phase 4 — Screenshot
+
+Capture the deployed page with the Playwright MCP server so the README shows the
+thing rather than only describing it. Take it from a local server, not the live
+URL — the screenshot should match the code being pushed, and Pages can lag a
+push by a minute or two.
+
+```bash
+mkdir -p docs                       # the screenshot lives here, out of the site root
+python3 -m http.server 8765 &       # or the project's own dev server
+```
+
+Then, with the `playwright` MCP tools:
+
+- `browser_navigate` to `http://127.0.0.1:8765/` — a headless browser cannot open
+  `file://` URLs reliably, which is why the server is worth the extra step.
+- `browser_resize` to `1440x900`, so the layout is the desktop one and the image
+  is not a phone-width column.
+- `browser_take_screenshot` with `fullPage: true` and an **absolute** `filename`
+  (`/abs/path/to/repo/docs/screenshot.png`). A relative name is resolved against
+  the MCP server's own working directory, which is not necessarily where you
+  want the file — it can land in the repo root or somewhere outside it entirely.
+  The target directory must already exist or the call fails with `ENOENT`, and
+  if a stray copy does appear elsewhere, delete it before committing.
+- Read the resulting PNG back and look at it. A blank page, a half-loaded
+  layout, or an error toast is worse than no screenshot at all.
+
+Afterwards: `browser_close`, stop the server, and keep the MCP server's scratch
+output out of the repo — `.playwright-mcp/` belongs in `.gitignore`.
+
+If the project has no visual UI (a CLI, a library), skip this phase rather than
+screenshotting a terminal for the sake of it.
+
+## Phase 5 — README
 
 Create `README.md`, or edit the existing one rather than overwriting it — keep
 any badges, licence text, or sections the user wrote. Base it on what the code
 actually does; read the source and any `CLAUDE.md` first instead of guessing.
 
 Cover: one-line description of what it is, a **live demo link** to the Pages URL,
-a screenshot if one exists, how to run it locally, the notable
+the screenshot from Phase 4 (`![alt](docs/screenshot.png)`, right under the demo
+link, with alt text that describes the interface for anyone who cannot see it),
+how to run it locally, the notable
 features/architecture, the tech stack, and any constraint a contributor would
 otherwise break. Say plainly if it is a demo rather than a product.
 
-## Phase 5 — Repo About
+## Phase 6 — Repo About
 
 Set the description and the homepage to the Pages URL. This needs an
 authenticated API call — `GITHUB_TOKEN` is not available locally.
@@ -215,6 +250,7 @@ Report, with no hedging about what was not verified:
 - what the secret scan found, including "nothing" if that is the truth
 - exactly which steps still need the user (enabling Pages, `gh auth login`,
   setting About by hand)
+- whether the screenshot was captured and refreshed, or why it was skipped
 - anything deliberately left alone
 
 Respect any `CLAUDE.md` in the repo throughout — its constraints outrank the
