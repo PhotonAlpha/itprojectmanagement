@@ -22,8 +22,10 @@ deliverable, so check a change against this list before making it:
 - **No persistence.** No `localStorage`, `sessionStorage`, IndexedDB or cookies. Board state lives only in
   the in-memory `state.tasks` array; a refresh resetting the board to seed data is intended behaviour, and
   the filter bar carries a visible note saying so.
-- **No external resources.** No CDN scripts, Google Fonts or image files. System font stack, inline SVG or
-  Unicode glyphs for icons. The only outbound request is the FormSubmit endpoint.
+- **No external resources.** No CDN scripts, Google Fonts or image files. System font stack and inline SVG
+  for icons. The only outbound request is the FormSubmit endpoint. This is now enforced by the CSP `<meta>`
+  in the head, not just by convention: anything you add from another origin is blocked by the browser with
+  no visible error, so widen the CSP deliberately or not at all.
 - **No `alert()` / `confirm()`.** Validation errors render inline under each field; card deletion uses an
   inline "Delete? Yes / No" row inside the card.
 
@@ -73,7 +75,12 @@ contents and the count badges are rebuilt by `renderBoard()`. This split matters
 per-card transient UI (an inline editor, say) needs the same treatment or it will close on the next render.
 
 **Escaping is mandatory.** `renderCard()` builds HTML strings, so every interpolated value passes through
-`escapeHtml()` (`index.html:643`). Keep that invariant if you add fields.
+`escapeHtml()`. Keep that invariant if you add fields.
+
+**`sanitizeText()` guards the other sink.** Escaping protects the DOM; it does nothing for the FormSubmit
+payload, where the title lands in an email `_subject`. Free-text fields are run through `sanitizeText()` in
+`validateForm()` before they are length-checked, so the value validated is the value stored and sent. Any
+new free-text field needs the same treatment.
 
 **Filtering is a pure read.** `applyFilters()` returns a filtered copy; column count badges reflect the
 *filtered* view while the header summary strip always reflects all of `state.tasks`.

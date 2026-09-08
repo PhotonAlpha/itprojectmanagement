@@ -1,2 +1,10 @@
 .DS_Store
 .playwright-mcp/
+
+# Third-party skills installed with `npx skills add` — kept local, not vendored.
+# Reinstall with the three commands in the project notes if you need them on
+# another machine. .claude/skills/* are symlinks into .agents/, so ignoring one
+# without the other would leave dangling links in a clone.
+.agents/
+.claude/skills/
+skills-lock.json

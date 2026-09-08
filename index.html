@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>UOB IT PMO — Project Kanban (Internal Demo)</title>
 
+<!-- Content Security Policy. The "no external resources" rule is a project
+     constraint; this makes the browser enforce it rather than trusting review.
+     default-src 'none' denies everything, then each directive re-opens only
+     what the page actually uses:
+       script-src/style-src 'unsafe-inline' — the page's own inline script and
+         style blocks. Required because everything lives in one file; there is
+         no build step to hash or nonce them, and the one-file rule stands.
+       img-src data:            — the inline data-URI favicon, nothing remote.
+       connect-src              — the single FormSubmit endpoint. Any other
+                                  exfiltration target is blocked outright.
+       form-action 'none'       — the form is handled in JS with
+                                  preventDefault(); this stops a native submit
+                                  from ever navigating the page anywhere.
+       base-uri 'none'          — blocks <base> tag injection.
+     Note: frame-ancestors (clickjacking) and HSTS are ignored in a <meta> CSP
+     and must be set as real response headers by whatever serves the page. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src https://formsubmit.co; form-action 'none'; base-uri 'none'" />
+
+<!-- Do not leak the page URL (or local file path) to FormSubmit. -->
+<meta name="referrer" content="no-referrer" />
+
 <!-- Inline data-URI favicon: keeps the page self-contained and stops the
      browser's automatic /favicon.ico request from 404-ing. -->
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNiIgZmlsbD0iIzEyM2E2YiIvPjxyZWN0IHg9IjYiIHk9IjgiIHdpZHRoPSI1IiBoZWlnaHQ9IjE2IiByeD0iMS41IiBmaWxsPSIjZTZlZWY4Ii8+PHJlY3QgeD0iMTMuNSIgeT0iOCIgd2lkdGg9IjUiIGhlaWdodD0iMTEiIHJ4PSIxLjUiIGZpbGw9IiNlNmVlZjgiLz48cmVjdCB4PSIyMSIgeT0iOCIgd2lkdGg9IjUiIGhlaWdodD0iNyIgcng9IjEuNSIgZmlsbD0iI2U2ZWVmOCIvPjwvc3ZnPg==" />
@@ -18,28 +39,40 @@
 <style>
   /* ============ 1. DESIGN TOKENS ============ */
   :root {
-    /* Corporate blue palette (neutral, not a brand mark) */
-    --c-blue-900: #0b2545;
-    --c-blue-800: #123a6b;
-    --c-blue-700: #1a4f8f;
-    --c-blue-600: #2266b3;
-    --c-blue-100: #e6eef8;
-    --c-blue-050: #f3f7fc;
+    /* Multi-hue palette: violet brand, four status hues, four priority hues.
+       Colour carries meaning here, so every pairing below was measured to
+       WCAG AA (4.5:1) rather than eyeballed — and colour is never the ONLY
+       signal: every status has a label and every priority pill its own text. */
+    --c-brand-900: #3b0d75;
+    --c-brand-800: #5b21b6;
+    --c-brand-700: #6d28d9;   /* white on this = 7.10:1 */
+    --c-brand-600: #7c3aed;   /* white on this = 5.70:1 */
+    --c-brand-100: #ede9fe;
+    --c-brand-050: #f5f3ff;
 
-    --c-bg:       #f5f7fa;
+    --c-bg:       #f7f5fc;
     --c-surface:  #ffffff;
-    --c-border:   #d7dee8;
-    --c-text:     #16202e;
-    --c-muted:    #5b6879;
+    --c-border:   #e2ddf0;
+    --c-text:     #1f1633;
+    --c-muted:    #574b6b;
 
-    --c-critical: #c62828;
-    --c-high:     #c77700;
-    --c-medium:   #2266b3;
-    --c-low:      #7a8694;
+    /* Priority hues — deliberately offset from the column hues below so a
+       Critical card sitting in Blocked does not read as one solid block. */
+    --c-critical: #b91c1c;
+    --c-high:     #c2410c;
+    --c-medium:   #1d4ed8;
+    --c-low:      #57534e;
 
-    --c-ok:       #1e7d46;
-    --c-warn:     #a35400;
-    --c-danger:   #c62828;
+    --c-ok:       #047857;
+    --c-warn:     #b45309;
+    --c-danger:   #b91c1c;
+
+    /* One hue per column: accent bar, tinted head and count badge all share
+       it, so a column is identifiable by colour as well as by position. */
+    --c-col:        #4f46e5;
+    --c-col-tint:   #eef0fe;
+    --c-col-ink:    #3730a3;
+    --c-col-badge:  #e0e3fd;
 
     /* Spacing scale */
     --s-1: 4px;
@@ -51,8 +84,14 @@
 
     --radius: 8px;
     --radius-sm: 5px;
-    --shadow: 0 1px 2px rgba(11, 37, 69, .08), 0 2px 8px rgba(11, 37, 69, .06);
-    --focus: 0 0 0 3px rgba(34, 102, 179, .45);
+    --shadow: 0 1px 2px rgba(31, 22, 51, .08), 0 2px 8px rgba(31, 22, 51, .06);
+    --shadow-lift: 0 2px 4px rgba(31, 22, 51, .10), 0 8px 20px rgba(31, 22, 51, .14);
+    --focus: 0 0 0 3px rgba(124, 58, 237, .55);
+
+    /* One duration per intent, not one duration for everything */
+    --t-fast: 120ms;
+    --t-base: 180ms;
+    --ease: cubic-bezier(.2, .6, .3, 1);
 
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   }
@@ -73,6 +112,7 @@
   h1, h2, h3 { margin: 0; font-weight: 650; }
 
   button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
 
   :focus-visible {
     outline: none;
@@ -80,17 +120,32 @@
     border-radius: var(--radius-sm);
   }
 
+  /* Sticky column heads must never hide the focused control behind them. */
+  html { scroll-padding-top: 96px; }
+
   .visually-hidden {
     position: absolute; width: 1px; height: 1px;
     padding: 0; margin: -1px; overflow: hidden;
     clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
 
+  /* Decorative inline icons: sized with the text, hidden from assistive tech */
+  .ico { width: 13px; height: 13px; flex: none; vertical-align: -2px; }
+
+  /* Motion conveys state changes only for users who want it. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms; animation-iteration-count: 1; transition-duration: .01ms; }
+    html { scroll-behavior: auto; }
+  }
+
   /* ============ 3. HEADER ============ */
   .app-header {
-    background: linear-gradient(180deg, var(--c-blue-900), var(--c-blue-800));
+    background: linear-gradient(135deg, var(--c-brand-900), var(--c-brand-700) 55%, #9333ea);
     color: #fff;
     padding: var(--s-4) var(--s-5);
+    /* The four column hues, restated as a hairline under the header */
+    border-bottom: 3px solid transparent;
+    border-image: linear-gradient(90deg, #4f46e5 0 25%, #b45309 25% 50%, #be123c 50% 75%, #047857 75% 100%) 1;
   }
 
   .header-row {
@@ -100,11 +155,11 @@
 
   .wordmark { display: flex; align-items: baseline; gap: var(--s-2); }
   .wordmark .mark { font-size: 18px; font-weight: 800; letter-spacing: .08em; }
-  .wordmark .sub  { font-size: 12px; color: #b9cbe4; letter-spacing: .04em; }
+  .wordmark .sub  { font-size: 12px; color: #ddd0f7; letter-spacing: .04em; }
 
   .demo-flag {
     display: inline-block; margin-top: var(--s-1);
-    font-size: 11px; color: #cfe0f5;
+    font-size: 11px; color: #ddd0f7;
   }
 
   /* Live summary strip */
@@ -113,28 +168,30 @@
     margin-top: var(--s-3); padding: 0; list-style: none;
   }
   .summary li {
-    background: rgba(255,255,255,.10);
-    border: 1px solid rgba(255,255,255,.18);
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.22);
     border-radius: 999px;
     padding: var(--s-1) var(--s-3);
     font-size: 12px;
     display: flex; gap: var(--s-2); align-items: center;
   }
   .summary b { font-weight: 700; }
-  .summary li.is-overdue { background: rgba(198,40,40,.30); border-color: rgba(255,180,180,.45); }
+  .summary li.is-overdue { background: rgba(190,18,60,.48); border-color: rgba(255,190,200,.6); }
 
   .btn {
-    background: var(--c-blue-600); color: #fff;
+    background: var(--c-brand-600); color: #fff;
     border: 1px solid transparent; border-radius: var(--radius-sm);
     padding: var(--s-2) var(--s-4); cursor: pointer; font-weight: 600;
+    min-height: 34px;
+    transition: background var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
   }
-  .btn:hover { background: var(--c-blue-700); }
+  .btn:hover { background: var(--c-brand-700); }
   .btn[disabled] { opacity: .6; cursor: progress; }
   .btn-ghost {
     background: transparent; color: #fff;
-    border: 1px solid rgba(255,255,255,.5);
+    border: 1px solid rgba(255,255,255,.55);
   }
-  .btn-ghost:hover { background: rgba(255,255,255,.12); }
+  .btn-ghost:hover { background: rgba(255,255,255,.14); }
 
   /* ============ 4. LAYOUT ============ */
   .layout {
@@ -144,6 +201,12 @@
     padding: var(--s-5);
     align-items: start;
   }
+
+  /* A grid item defaults to min-width:auto, so without this the board's
+     min-column width props the whole layout open and the PAGE scrolls
+     sideways instead of the board. This is what makes overflow-x on .board
+     actually engage. */
+  .layout > * { min-width: 0; }
 
   .panel {
     background: var(--c-surface);
@@ -155,11 +218,11 @@
   .panel-head {
     padding: var(--s-3) var(--s-4);
     border-bottom: 1px solid var(--c-border);
-    background: var(--c-blue-050);
+    background: var(--c-brand-050);
     border-radius: var(--radius) var(--radius) 0 0;
     display: flex; justify-content: space-between; align-items: center;
   }
-  .panel-head h2 { font-size: 14px; color: var(--c-blue-900); }
+  .panel-head h2 { font-size: 14px; color: var(--c-brand-900); }
 
   /* ============ 5. FORM (sidebar) ============ */
   .form-body { padding: var(--s-4); }
@@ -167,7 +230,7 @@
   .field { margin-bottom: var(--s-4); }
   .field label {
     display: block; margin-bottom: var(--s-1);
-    font-size: 12px; font-weight: 650; color: var(--c-blue-900);
+    font-size: 12px; font-weight: 650; color: var(--c-brand-900);
   }
   .field .req { color: var(--c-danger); }
 
@@ -177,9 +240,11 @@
     border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);
     background: #fff;
+    min-height: 34px;
+    transition: border-color var(--t-fast) var(--ease);
   }
   .field textarea { min-height: 70px; resize: vertical; }
-  .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--c-blue-600); }
+  .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--c-brand-600); }
   .field [aria-invalid="true"] { border-color: var(--c-danger); background: #fff7f7; }
 
   .hint { font-size: 11px; color: var(--c-muted); margin: var(--s-1) 0 0; }
@@ -192,10 +257,10 @@
 
   .form-actions { display: flex; gap: var(--s-2); align-items: center; }
   .btn-secondary {
-    background: #fff; color: var(--c-blue-800);
+    background: #fff; color: var(--c-brand-800);
     border: 1px solid var(--c-border);
   }
-  .btn-secondary:hover { background: var(--c-blue-050); }
+  .btn-secondary:hover { background: var(--c-brand-050); border-color: var(--c-brand-600); }
 
   /* ============ 6. FILTER BAR ============ */
   .filters { margin-bottom: var(--s-4); padding: var(--s-3) var(--s-4); }
@@ -210,19 +275,38 @@
   /* ============ 7. BOARD ============ */
   .board {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Four equal columns that never squeeze narrower than a readable card.
+       Past that the BOARD scrolls sideways — the kanban convention — and the
+       page itself never gets a horizontal scrollbar. */
+    grid-template-columns: repeat(4, minmax(240px, 1fr));
+    overflow-x: auto;
     gap: var(--s-4);
+    padding-bottom: var(--s-1);
     /* stretch (not start) so every column is a full-height drop target,
        even when it holds one card or none */
     align-items: stretch;
   }
 
   .column {
-    background: #eef2f7;
+    background: #f1eef9;
     border: 1px solid var(--c-border);
     border-radius: var(--radius);
     display: flex; flex-direction: column;
     min-height: 180px;
+    /* Accent belongs to the column, so it survives the list re-render.
+       Each column overrides the four --c-col-* variables once and the head,
+       badge and accent bar below all follow from them. */
+    border-top: 3px solid var(--c-col);
+    transition: background var(--t-base) var(--ease);
+  }
+  .column[data-status="In Progress"] {
+    --c-col: #b45309; --c-col-tint: #fdf3e7; --c-col-ink: #8a4708; --c-col-badge: #fbeeda;
+  }
+  .column[data-status="Blocked"] {
+    --c-col: #be123c; --c-col-tint: #feecf0; --c-col-ink: #9f1239; --c-col-badge: #fddde5;
+  }
+  .column[data-status="Done"] {
+    --c-col: #047857; --c-col-tint: #e8f6f0; --c-col-ink: #065f46; --c-col-badge: #d6efe4;
   }
 
   .column-head {
@@ -230,14 +314,16 @@
     gap: var(--s-2);
     padding: var(--s-3);
     border-bottom: 1px solid var(--c-border);
-    background: var(--c-surface);
+    background: var(--c-col-tint);
     border-radius: var(--radius) var(--radius) 0 0;
+    /* Header stays put while a long column scrolls under it */
+    position: sticky; top: 0; z-index: 1;
   }
-  .column-head h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--c-blue-900); }
+  .column-head h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--c-col-ink); }
   .column-head .desc { display: block; font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--c-muted); }
 
   .count {
-    background: var(--c-blue-100); color: var(--c-blue-800);
+    background: var(--c-col-badge); color: var(--c-col-ink);
     border-radius: 999px; padding: 1px var(--s-2);
     font-size: 12px; font-weight: 700; min-width: 24px; text-align: center;
   }
@@ -246,14 +332,22 @@
     padding: var(--s-3);
     display: flex; flex-direction: column; gap: var(--s-3);
     flex: 1;
+    /* Deliberately NOT height-capped. Capping the list makes each column its
+       own scroll container, which on a board this size buys nothing and costs
+       a second scrollbar plus cards sliced in half at the fold. The sticky
+       column head above already keeps the status label and count in view while
+       a long column scrolls past. */
   }
 
-  .column.drop-target { background: var(--c-blue-100); }
-  .column.drop-target .column-list { outline: 2px dashed var(--c-blue-600); outline-offset: -6px; border-radius: var(--radius-sm); }
+  /* The drop highlight uses the target column's own hue, so the feedback
+     names the destination instead of being a generic glow. */
+  .column.drop-target { background: var(--c-col-tint); }
+  .column.drop-target .column-list { outline: 2px dashed var(--c-col); outline-offset: -6px; border-radius: var(--radius-sm); }
 
   .empty-note {
     color: var(--c-muted); font-size: 12px; font-style: italic;
-    padding: var(--s-3) 0; text-align: center;
+    padding: var(--s-4) var(--s-2); text-align: center;
+    border: 1px dashed var(--c-border); border-radius: var(--radius-sm);
   }
 
   /* ============ 8. CARDS ============ */
@@ -265,9 +359,13 @@
     padding: var(--s-3);
     box-shadow: var(--shadow);
     cursor: grab;
+    transition: box-shadow var(--t-base) var(--ease),
+                transform var(--t-base) var(--ease),
+                border-color var(--t-base) var(--ease);
   }
+  .card:hover { box-shadow: var(--shadow-lift); transform: translateY(-1px); }
   .card:active { cursor: grabbing; }
-  .card.dragging { opacity: .45; }
+  .card.dragging { opacity: .45; transform: none; }
 
   .card.prio-critical { border-left-color: var(--c-critical); }
   .card.prio-high     { border-left-color: var(--c-high); }
@@ -275,25 +373,31 @@
   .card.prio-low      { border-left-color: var(--c-low); }
 
   .card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--s-2); }
-  .card-id { font-size: 11px; font-weight: 700; color: var(--c-blue-700); letter-spacing: .03em; }
+  .card-ref { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+  .card-id { font-size: 11px; font-weight: 700; color: var(--c-brand-700); letter-spacing: .03em; }
+
+  /* Visible grab affordance — the keyboard path is the Move menu below */
+  .grip { color: #a99cc4; flex: none; }
 
   .icon-btn {
     background: transparent; border: 1px solid transparent;
     border-radius: var(--radius-sm);
     color: var(--c-muted); cursor: pointer;
     line-height: 1; padding: 2px 6px; font-size: 15px;
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
   .icon-btn:hover { background: #fdecec; color: var(--c-danger); border-color: #f3c9c9; }
 
-  .card-title { font-size: 13.5px; margin: var(--s-2) 0 var(--s-1); }
+  .card-title { font-size: 13.5px; margin: var(--s-2) 0 var(--s-1); text-wrap: balance; }
   .card-desc  { margin: 0 0 var(--s-2); font-size: 12px; color: var(--c-muted); }
-  .card-project { margin: 0; font-size: 12px; color: var(--c-blue-800); font-weight: 600; }
+  .card-project { margin: 0; font-size: 12px; color: var(--c-brand-800); font-weight: 600; }
 
   .tags { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: var(--s-2) 0; }
 
   .pill {
     font-size: 11px; font-weight: 700; border-radius: 999px;
     padding: 1px var(--s-2); border: 1px solid;
+    white-space: nowrap;
   }
   .pill-critical { color: #fff; background: var(--c-critical); border-color: var(--c-critical); }
   .pill-high     { color: #fff; background: var(--c-high); border-color: var(--c-high); }
@@ -303,14 +407,16 @@
   .tag {
     font-size: 11px; border-radius: var(--radius-sm);
     padding: 1px var(--s-2);
-    background: var(--c-blue-050); color: var(--c-blue-800);
-    border: 1px solid var(--c-blue-100);
+    background: var(--c-brand-050); color: var(--c-brand-800);
+    border: 1px solid var(--c-brand-100);
+    white-space: nowrap;
   }
 
   .badge-overdue {
     font-size: 11px; font-weight: 700; border-radius: var(--radius-sm);
     padding: 1px var(--s-2);
     background: #fdecec; color: var(--c-danger); border: 1px solid #f3c9c9;
+    white-space: nowrap;
   }
 
   .card-foot {
@@ -319,23 +425,25 @@
     border-top: 1px dashed var(--c-border);
     padding-top: var(--s-2); margin-top: var(--s-2);
   }
+  .card-foot span { display: inline-flex; align-items: center; gap: var(--s-1); }
 
   .card-actions { margin-top: var(--s-2); }
 
   .mini-btn {
     background: #fff; border: 1px solid var(--c-border);
     border-radius: var(--radius-sm);
-    padding: 2px var(--s-2); font-size: 12px; cursor: pointer;
-    color: var(--c-blue-800);
+    padding: 3px var(--s-2); font-size: 12px; cursor: pointer;
+    color: var(--c-brand-800);
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
-  .mini-btn:hover { background: var(--c-blue-050); border-color: var(--c-blue-600); }
+  .mini-btn:hover { background: var(--c-brand-050); border-color: var(--c-brand-600); }
   .mini-btn.danger { color: var(--c-danger); }
   .mini-btn.danger:hover { background: #fdecec; border-color: var(--c-danger); }
 
   .move-menu {
     margin-top: var(--s-2); padding: var(--s-2);
     border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-blue-050);
+    background: var(--c-brand-050);
     display: flex; flex-wrap: wrap; gap: var(--s-1);
   }
   .move-menu .menu-label { font-size: 11px; color: var(--c-muted); width: 100%; }
@@ -344,8 +452,15 @@
     margin-top: var(--s-2); padding: var(--s-2);
     border: 1px solid #f3c9c9; border-radius: var(--radius-sm);
     background: #fdecec;
-    display: flex; align-items: center; gap: var(--s-2);
+    display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2);
     font-size: 12px; font-weight: 600; color: var(--c-danger);
+  }
+
+  /* Touch pointers need a 44px target; a mouse does not, and forcing it here
+     would wreck the density this board depends on. */
+  @media (pointer: coarse) {
+    .mini-btn, .icon-btn { min-height: 44px; min-width: 44px; padding-inline: var(--s-3); }
+    .card { padding: var(--s-4); }
   }
 
   /* ============ 9. TOASTS ============ */
@@ -357,9 +472,9 @@
   .toast {
     background: var(--c-surface);
     border: 1px solid var(--c-border);
-    border-left: 5px solid var(--c-blue-600);
+    border-left: 5px solid var(--c-brand-600);
     border-radius: var(--radius-sm);
-    box-shadow: var(--shadow);
+    box-shadow: var(--shadow-lift);
     padding: var(--s-3) var(--s-4);
     font-size: 13px;
   }
@@ -380,7 +495,7 @@
   }
   @media (max-width: 768px) {
     /* Columns stack vertically below 768px */
-    .board { grid-template-columns: 1fr; }
+    .board { grid-template-columns: 1fr; overflow-x: visible; }
     .layout { padding: var(--s-4); }
     .toast-region { right: var(--s-3); left: var(--s-3); bottom: var(--s-3); max-width: none; }
   }
@@ -653,6 +768,26 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+/* Strip control characters from free text before it is stored or sent.
+   escapeHtml() already neutralises the rendering path; this covers the OTHER
+   sink — the FormSubmit payload, where the title is interpolated into an email
+   _subject. A CR/LF reaching a mail header is the classic header-injection
+   vector (CWE-93), letting crafted input append its own headers. Browsers strip
+   newlines from <input type="text">, but that is the browser's guarantee, not
+   ours: the value can also arrive by paste or by a script setting .value.
+   Also collapses runs of whitespace so a wall of spaces cannot pad a card. */
+function sanitizeText(value) {
+  return String(value == null ? "" : value)
+    /* eslint-disable-next-line no-control-regex */
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* Hard caps, enforced in JS as well as in the maxlength attributes. A
+   maxlength is a UI convenience the client owns and can bypass. */
+const MAX_LEN = { title: 80, description: 500, assignee: 60 };
+
 /* Kebab-case slug used for ids and CSS modifier classes. */
 function slug(text) {
   return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -731,6 +866,20 @@ function seedTasks() {
 
 /* ---------------- 5. RENDERING ---------------- */
 
+/* Inline SVG icons. Emoji were used here before, but they render as a
+   different glyph on every platform and screen readers announce them as words
+   ("bust in silhouette"), so they read as content rather than decoration.
+   These are aria-hidden: the adjacent text is the accessible name. */
+const ICON = {
+  user: '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">' +
+        '<circle cx="8" cy="5" r="2.6"/><path d="M2.6 14c0-2.8 2.4-4.6 5.4-4.6s5.4 1.8 5.4 4.6" stroke-linecap="round"/></svg>',
+  calendar: '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">' +
+        '<rect x="2" y="3.2" width="12" height="11" rx="1.6"/><path d="M2 6.6h12M5.4 1.8v2.6M10.6 1.8v2.6" stroke-linecap="round"/></svg>',
+  grip: '<svg class="ico grip" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">' +
+        '<circle cx="6" cy="4" r="1.2"/><circle cx="10" cy="4" r="1.2"/><circle cx="6" cy="8" r="1.2"/>' +
+        '<circle cx="10" cy="8" r="1.2"/><circle cx="6" cy="12" r="1.2"/><circle cx="10" cy="12" r="1.2"/></svg>'
+};
+
 /* Build the HTML for one card. All interpolated values are escaped. */
 function renderCard(task) {
   const id = escapeHtml(task.id);
@@ -767,7 +916,7 @@ function renderCard(task) {
     '<article class="card prio-' + slug(task.priority) + '" role="listitem" draggable="true"' +
       ' data-id="' + id + '" aria-label="' + escapeHtml(task.id + ": " + task.title) + '">' +
       '<div class="card-top">' +
-        '<span class="card-id">' + id + '</span>' +
+        '<span class="card-ref">' + ICON.grip + '<span class="card-id">' + id + '</span></span>' +
         '<button type="button" class="icon-btn" data-action="delete-ask" data-id="' + id + '"' +
           ' aria-label="Delete task ' + id + '">&times;</button>' +
       '</div>' +
@@ -780,8 +929,8 @@ function renderCard(task) {
         (overdue ? '<span class="badge-overdue">Overdue</span>' : '') +
       '</div>' +
       '<div class="card-foot">' +
-        '<span>&#128100; ' + escapeHtml(task.assignee) + '</span>' +
-        '<span>&#128197; Due ' + escapeHtml(formatDate(task.dueDate)) + '</span>' +
+        '<span>' + ICON.user + escapeHtml(task.assignee) + '</span>' +
+        '<span>' + ICON.calendar + 'Due ' + escapeHtml(formatDate(task.dueDate)) + '</span>' +
       '</div>' +
       actions +
     '</article>';
@@ -990,8 +1139,14 @@ function bindBoardInteractions() {
       e.preventDefault();
       depth = 0;
       column.classList.remove("drop-target");
+      /* A drop can carry text dragged in from ANY other tab or app, so this
+         payload is untrusted input, not something this page necessarily wrote.
+         Shape-check it, then let moveTask() reject any id that is not on the
+         board — an unknown id must be a silent no-op, never a new card. */
       const taskId = e.dataTransfer.getData("text/plain");
-      if (taskId) moveTask(taskId, column.getAttribute("data-status"));
+      if (/^UOB-ITPM-\d{4,}$/.test(taskId)) {
+        moveTask(taskId, column.getAttribute("data-status"));
+      }
     });
   });
 }
@@ -1024,12 +1179,14 @@ function clearErrors() {
 function validateForm() {
   clearErrors();
 
+  /* Free-text fields are sanitised before they are validated, so the length
+     that gets checked is the length that actually gets stored and sent. */
   const values = {
-    title: document.getElementById("f-title").value.trim(),
-    description: document.getElementById("f-description").value.trim(),
+    title: sanitizeText(document.getElementById("f-title").value),
+    description: sanitizeText(document.getElementById("f-description").value),
     project: document.getElementById("f-project").value,
     category: document.getElementById("f-category").value,
-    assignee: document.getElementById("f-assignee").value.trim(),
+    assignee: sanitizeText(document.getElementById("f-assignee").value),
     priority: document.getElementById("f-priority").value,
     dueDate: document.getElementById("f-dueDate").value,
     status: document.getElementById("f-status").value
@@ -1042,11 +1199,19 @@ function validateForm() {
   }
 
   if (!values.title) fail("title", "Task title is required.");
-  else if (values.title.length > 80) fail("title", "Title must be 80 characters or fewer.");
+  else if (values.title.length > MAX_LEN.title) fail("title", "Title must be " + MAX_LEN.title + " characters or fewer.");
 
-  if (values.description.length > 500) fail("description", "Description must be 500 characters or fewer.");
+  if (values.description.length > MAX_LEN.description) fail("description", "Description must be " + MAX_LEN.description + " characters or fewer.");
 
   if (!values.assignee) fail("assignee", "Assignee is required.");
+  else if (values.assignee.length > MAX_LEN.assignee) fail("assignee", "Assignee must be " + MAX_LEN.assignee + " characters or fewer.");
+
+  /* The selects are closed vocabularies. Re-check them against the constants
+     rather than trusting the DOM: the <option> list is client-side state and
+     anyone with devtools can add a value to it. */
+  if (["Core Banking Upgrade","Digital Channels","Cybersecurity Uplift",
+       "Data & Analytics","Infrastructure & Cloud","Vendor Management"]
+      .indexOf(values.project) === -1) fail("project", "Choose a valid project.");
 
   if (!values.dueDate) {
     fail("dueDate", "Due date is required.");
@@ -1144,27 +1309,49 @@ function showToast(heading, message, kind) {
 /* AJAX JSON endpoint — the page never navigates away.
    The only place any email address is sent. */
 async function notifyNewTask(task) {
-  const res = await fetch(FORMSUBMIT_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      _subject: "[UOB IT PMO] New task " + task.id + ": " + task.title,
-      _template: "table",
-      _captcha: "false",
-      "Task ID": task.id,
-      Title: task.title,
-      Description: task.description,
-      Project: task.project,
-      Category: task.category,
-      Assignee: task.assignee,
-      Priority: task.priority,
-      "Due Date": task.dueDate,
-      Status: task.status,
-      "Submitted At": new Date().toISOString()
-    })
-  });
-  if (!res.ok) throw new Error("FormSubmit failed: " + res.status);
-  return res.json();
+  /* Availability: without a deadline a hung connection never settles, so the
+     finally-block below never runs and the submit button stays disabled on
+     "Sending…" forever — the form is bricked by a slow network alone, with no
+     attacker involved. Ten seconds, then the catch turns it into a toast. */
+  const controller = new AbortController();
+  const timer = window.setTimeout(function () { controller.abort(); }, 10000);
+
+  try {
+    const res = await fetch(FORMSUBMIT_ENDPOINT, {
+      method: "POST",
+      signal: controller.signal,
+      referrerPolicy: "no-referrer",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      /* task.* is already sanitised by validateForm(); sanitizeText() is
+         applied again here because this is the sink that matters — the
+         subject line lands in a mail header. Cheap, and it keeps the
+         guarantee local to the call that depends on it. */
+      body: JSON.stringify({
+        _subject: sanitizeText("[UOB IT PMO] New task " + task.id + ": " + task.title).slice(0, 160),
+        _template: "table",
+        _captcha: "false",
+        "Task ID": task.id,
+        Title: task.title,
+        Description: task.description,
+        Project: task.project,
+        Category: task.category,
+        Assignee: task.assignee,
+        Priority: task.priority,
+        "Due Date": task.dueDate,
+        Status: task.status,
+        "Submitted At": new Date().toISOString()
+      })
+    });
+    if (!res.ok) throw new Error("FormSubmit failed: " + res.status);
+    return res.json();
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("Notification timed out after 10s.");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 /* ---------------- 12. INIT ---------------- */

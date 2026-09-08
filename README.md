@@ -47,7 +47,44 @@ python3 -m http.server 8765
   to, and deleting a card uses an inline "Delete? Yes / No" row. No `alert()` or
   `confirm()` anywhere.
 - **Email notification** on task creation via FormSubmit's AJAX endpoint,
-  fired so that a network failure can never break the board.
+  fired so that a network failure can never break the board, and abandoned
+  after 10s so a hung request cannot leave the form stuck on "Sending…".
+- **Colour-coded columns** — a violet brand with a distinct hue per status
+  (indigo Backlog, amber In Progress, rose Blocked, emerald Done) carried
+  through each column's accent bar, tinted header, count badge and drop
+  highlight, so the destination of a drag is named by colour rather than by a
+  generic glow. Every text/background pairing in the palette was measured
+  against WCAG AA (4.5:1), and colour is never the only signal — every status
+  keeps its label and every priority pill its own text.
+- **Inline SVG icons** rather than emoji, which render as a different glyph on
+  every platform and are announced as words ("bust in silhouette") by screen
+  readers.
+
+## Security
+
+The page is static and has no backend, accounts or stored data, so the interesting
+surface is small: rendered task text, the drag-and-drop payload, and the single
+outbound request. Each is handled at the sink rather than trusted on arrival:
+
+- **Content Security Policy** (`<meta http-equiv>`) starts from `default-src 'none'`
+  and re-opens only the inline script/style, the data-URI favicon and the one
+  FormSubmit origin. `connect-src` makes the "no external resources" rule
+  browser-enforced instead of review-enforced: any other request is blocked
+  outright. `form-action 'none'` stops a native form submit from navigating
+  away, and `base-uri 'none'` blocks `<base>` injection.
+- **Output escaping** — `renderCard()` builds HTML strings, so every interpolated
+  value goes through `escapeHtml()`.
+- **Input sanitising** — `sanitizeText()` strips control characters before text is
+  stored or sent. This covers the sink escaping does not: the task title is
+  interpolated into the FormSubmit email subject, and a CR/LF reaching a mail
+  header is the classic header-injection vector.
+- **Drop payloads are untrusted** — a drop can carry text dragged from any other
+  tab, so the id is shape-checked and an unknown id is a silent no-op.
+- **Length and vocabulary limits** are re-checked in JS; `maxlength` and a
+  `<select>`'s options are client-side state that anyone can edit.
+
+Not covered, and needing real response headers a static file cannot set:
+`frame-ancestors` (clickjacking) and HSTS.
 
 ## Tech stack
 
@@ -83,7 +120,7 @@ breaks the deliverable:
 | One file | Everything stays in `index.html`; no separate `.css` or `.js` |
 | Runs from `file://` | Double-clicking the file must work |
 | No persistence | No `localStorage`, cookies or IndexedDB — a refresh resetting the board to seed data is intended, and the filter bar says so |
-| No external resources | No CDN scripts, web fonts or image files |
+| No external resources | No CDN scripts, web fonts or image files — enforced by the CSP, so adding one fails silently in the browser rather than at review |
 | No `alert()` / `confirm()` | Validation and deletion are inline |
 
 Accessibility is part of the spec: `<label for>` on every input, `aria-label` on
